@@ -3,54 +3,245 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ChronoVault - Time-Locked Password Manager</title>
+  <title>ChronoVault</title>
   <style>
     :root {
-      --bg-color: #0d1117;
-      --card-bg: #161b22;
-      --border-color: #30363d;
-      --accent-cyan: #58a6ff;
-      --accent-green: #3fb950;
-      --accent-red: #f85149;
-      --accent-yellow: #d29922;
-      --text-main: #c9d1d9;
-      --text-muted: #8b949e;
-      --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      --bg: #0d1117;
+      --card: #161b22;
+      --border: #30363d;
+      --accent: #58a6ff;
+      --green: #3fb950;
+      --red: #f85149;
+      --yellow: #d29922;
+      --text: #c9d1d9;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: var(--bg); color: var(--text); padding: 16px; max-width: 600px; margin: 0 auto; }
+    header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 16px; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
+    h1 { font-size: 1.3rem; color: #fff; }
+    .btn { background: var(--card); color: var(--text); border: 1px solid var(--border); padding: 8px 12px; border-radius: 6px; font-size: 0.85rem; cursor: pointer; font-weight: 600; }
+    .btn:hover { border-color: var(--accent); color: #fff; }
+    .btn-primary { background: #238636; border-color: rgba(240,246,252,0.1); color: #fff; }
+    .btn-danger { background: rgba(248,81,73,0.15); border-color: var(--red); color: var(--red); }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+    .form-group { margin-bottom: 12px; }
+    label { display: block; font-size: 0.75rem; color: #8b949e; margin-bottom: 4px; text-transform: uppercase; }
+    input, select, textarea { width: 100%; background: var(--bg); border: 1px solid var(--border); color: #fff; padding: 10px; border-radius: 6px; font-size: 0.9rem; }
+    input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+    .secret-box { background: var(--bg); padding: 10px; border-radius: 6px; font-family: monospace; word-break: break-all; margin: 10px 0; border: 1px dashed var(--border); }
+    .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: none; justify-content: center; align-items: center; padding: 16px; z-index: 100; }
+    .modal { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 20px; width: 100%; max-width: 400px; }
+    .flex { display: flex; gap: 8px; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>🔐 ChronoVault</h1>
+    <div class="flex">
+      <button class="btn" onclick="openBackup()">Backup</button>
+      <button class="btn btn-primary" onclick="openModal('newModal')">+ New Lock</button>
+    </div>
+  </header>
+
+  <div id="vaultList"></div>
+
+  <!-- New Modal -->
+  <div id="newModal" class="modal-overlay">
+    <div class="modal">
+      <h3 style="color:#fff; margin-bottom:12px;">Lock New Secret</h3>
+      <div class="form-group">
+        <label>Title</label>
+        <input type="text" id="titleInput" placeholder="e.g. Master Passcode" />
+      </div>
+      <div class="form-group">
+        <label>Secret / Password</label>
+        <textarea id="secretInput" rows="3" placeholder="Enter sensitive info..."></textarea>
+      </div>
+      <div class="form-group">
+        <label>Lock Duration (Days)</label>
+        <input type="number" id="daysInput" value="14" min="1" />
+      </div>
+      <div class="form-group">
+        <label>Master Key Hint (Optional)</label>
+        <input type="text" id="hintInput" placeholder="e.g. Favorite memory" />
+      </div>
+      <div class="flex" style="justify-content: flex-end; margin-top: 16px;">
+        <button class="btn" onclick="closeModal('newModal')">Cancel</button>
+        <button class="btn btn-primary" onclick="saveItem()">Lock Vault</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Backup Modal -->
+  <div id="backupModal" class="modal-overlay">
+    <div class="modal">
+      <h3 style="color:#fff; margin-bottom:12px;">Vault Backup</h3>
+      <div class="form-group">
+        <button class="btn btn-primary" style="width:100%;" onclick="exportData()">Export Backup File</button>
+      </div>
+      <div class="form-group">
+        <label>Restore File</label>
+        <input type="file" accept=".json" onchange="importData(event)" />
+      </div>
+      <div class="flex" style="justify-content: flex-end; margin-top: 16px;">
+        <button class="btn" onclick="closeModal('backupModal')">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let vault = JSON.parse(localStorage.getItem('chronovault_items') || '[]');
+    const DAY = 24 * 60 * 60 * 1000;
+
+    function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+    function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+    function openBackup() { openModal('backupModal'); }
+
+    function saveItem() {
+      const title = document.getElementById('titleInput').value.trim();
+      const secret = document.getElementById('secretInput').value.trim();
+      const days = parseInt(document.getElementById('daysInput').value) || 1;
+      const hint = document.getElementById('hintInput').value.trim();
+
+      if (!title || !secret) return alert('Please fill in title and secret.');
+
+      vault.push({
+        id: Date.now().toString(),
+        title,
+        secret,
+        unlockTime: Date.now() + (days * DAY),
+        hint: hint || null,
+        emergency: null
+      });
+
+      localStorage.setItem('chronovault_items', JSON.stringify(vault));
+      closeModal('newModal');
+      document.getElementById('titleInput').value = '';
+      document.getElementById('secretInput').value = '';
+      document.getElementById('hintInput').value = '';
+      render();
     }
 
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-
-    body {
-      background-color: var(--bg-color);
-      color: var(--text-main);
-      font-family: var(--font-family);
-      padding: 16px;
-      max-width: 600px;
-      margin: 0 auto;
+    function deleteItem(id) {
+      if (confirm('Permanently delete this item?')) {
+        vault = vault.filter(i => i.id !== id);
+        localStorage.setItem('chronovault_items', JSON.stringify(vault));
+        render();
+      }
     }
 
-    header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding-bottom: 16px;
-      border-bottom: 1px solid var(--border-color);
-      margin-bottom: 20px;
+    function startEmergency(id) {
+      const item = vault.find(i => i.id === id);
+      if (!item) return;
+      const remaining = item.unlockTime - Date.now();
+      if (remaining <= (7 * DAY)) return alert('Emergency unlock only available for locks longer than 7 days.');
+      
+      item.emergency = { lastCheckIn: Date.now(), count: 1 };
+      localStorage.setItem('chronovault_items', JSON.stringify(vault));
+      render();
     }
 
-    h1 { font-size: 1.4rem; color: #fff; display: flex; align-items: center; gap: 8px; }
+    function checkIn(id) {
+      const item = vault.find(i => i.id === id);
+      if (!item || !item.emergency) return;
+      
+      const now = Date.now();
+      const diff = now - item.emergency.lastCheckIn;
 
-    .btn {
-      background: var(--card-bg);
-      color: var(--text-main);
-      border: 1px solid var(--border-color);
-      padding: 8px 14px;
-      border-radius: 6px;
-      font-size: 0.85rem;
-      cursor: pointer;
-      font-weight: 600;
-      transition: all 0.2s ease;
+      if (diff > (2 * DAY)) {
+        alert('Emergency revoked due to missed 24h window.');
+        item.emergency = null;
+      } else if (diff < DAY) {
+        alert('Please wait 24 hours between check-ins.');
+        return;
+      } else {
+        item.emergency.count += 1;
+        item.emergency.lastCheckIn = now;
+        if (item.emergency.count >= 7) item.unlockTime = now;
+      }
+      localStorage.setItem('chronovault_items', JSON.stringify(vault));
+      render();
     }
 
-    .btn:hover { border-color: var(--accent-cyan); color: #fff; }
-    .btn-primary { background: #238636; border-color: rgba(240, 246, 252, 0.1); color:
+    function exportData() {
+      const blob = new Blob([JSON.stringify(vault)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `chronovault_${Date.now()}.json`;
+      a.click();
+    }
+
+    function importData(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(evt) {
+        try {
+          vault = JSON.parse(evt.target.result);
+          localStorage.setItem('chronovault_items', JSON.stringify(vault));
+          closeModal('backupModal');
+          render();
+          alert('Restored successfully!');
+        } catch(err) { alert('Invalid file.'); }
+      };
+      reader.readAsText(file);
+    }
+
+    function render() {
+      const container = document.getElementById('vaultList');
+      container.innerHTML = '';
+
+      if (vault.length === 0) {
+        container.innerHTML = `<div style="text-align:center; color:#8b949e; padding:40px;">No secrets locked. Tap <strong>+ New Lock</strong> above.</div>`;
+        return;
+      }
+
+      const now = Date.now();
+
+      vault.forEach(item => {
+        if (item.emergency && (now - item.emergency.lastCheckIn > (2 * DAY))) {
+          item.emergency = null;
+        }
+
+        const unlocked = now >= item.unlockTime;
+        const daysLeft = ((item.unlockTime - now) / DAY).toFixed(1);
+
+        let emergencyHtml = '';
+        if (item.emergency) {
+          emergencyHtml = `
+            <div style="background:rgba(248,81,73,0.1); border:1px solid var(--red); padding:8px; border-radius:6px; margin:8px 0; font-size:0.8rem;">
+              Emergency Check-in: ${item.emergency.count}/7
+              <button class="btn btn-primary" style="width:100%; margin-top:6px;" onclick="checkIn('${item.id}')">Confirm Daily Check-In</button>
+            </div>
+          `;
+        }
+
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `
+          <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+            <strong>${item.title}</strong>
+            <span style="font-size:0.75rem; padding:2px 6px; border-radius:10px; background:${unlocked?'rgba(63,185,80,0.15)':'rgba(210,153,34,0.15)'}; color:${unlocked?'var(--green)':'var(--yellow)'};">
+              ${unlocked ? 'UNLOCKED' : `LOCKED (${daysLeft}d left)`}
+            </span>
+          </div>
+          ${item.hint ? `<div style="font-size:0.8rem; color:var(--accent); margin-bottom:6px;">Hint: ${item.hint}</div>` : ''}
+          <div class="secret-box">${unlocked ? item.secret : '••••••••••••••••••••••••'}</div>
+          ${emergencyHtml}
+          <div class="flex" style="justify-content:space-between; margin-top:10px;">
+            <div>
+              ${!unlocked && !item.emergency ? `<button class="btn" onclick="startEmergency('${item.id}')">Start 7-Day Emergency</button>` : ''}
+            </div>
+            <button class="btn btn-danger" onclick="deleteItem('${item.id}')">Delete</button>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    render();
+    setInterval(render, 15000);
+  </script>
+</body>
+</html>
